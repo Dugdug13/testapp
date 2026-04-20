@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { useSwipe } from 'react-kinetic-ui'; // Replace with the local path if testing without installing
 
 const SwipeTest = () => {
-  const [swipeData, setSwipeData] = useState<any>(null);
+  const [swipeData, setSwipeData] = useState(null);
 
   // Initialize the hook
   const bind = useSwipe((state) => {
