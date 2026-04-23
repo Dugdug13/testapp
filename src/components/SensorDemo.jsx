@@ -1,5 +1,5 @@
 import React from 'react';
-import { useSensor } from '@deekshaaa/kinetic-ui';
+import { useSensor } from 'react-kinetic-ui';
 import { Radio } from 'lucide-react';
 
 export default function SensorDemo() {

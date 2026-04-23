@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { useContactless } from '@deekshaaa/kinetic-ui';
+import { useContactless } from 'react-kinetic-ui';
 import { Camera, CameraOff, Sparkles } from 'lucide-react';
 import { motion, useMotionValue, useSpring } from 'motion/react';
 
