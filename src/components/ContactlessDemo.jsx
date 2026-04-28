@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { useContactless } from 'react-kinetic-ui';
 import { Camera, CameraOff, Sparkles } from 'lucide-react';
 import { motion, useMotionValue, useSpring } from 'motion/react';
@@ -12,6 +12,8 @@ export default function ContactlessDemo() {
   const y = useMotionValue(150);
   const springX = useSpring(x, { stiffness: 400, damping: 25 });
   const springY = useSpring(y, { stiffness: 400, damping: 25 });
+
+  const videoRef = useRef(null);
 
   const { start, stop, isReady } = useContactless((results) => {
     // Coordinate mapping (simplified to map to container)
@@ -30,12 +32,17 @@ export default function ContactlessDemo() {
     }
   });
 
+  useEffect(() => {
+    if (isActive && videoRef.current) {
+      start(videoRef.current);
+    }
+  }, [isActive, start]);
+
   const handleToggle = () => {
     if (isActive) {
       stop();
       setIsActive(false);
     } else {
-      start();
       setIsActive(true);
     }
   };
@@ -56,6 +63,13 @@ export default function ContactlessDemo() {
 
       {isActive ? (
         <div className="w-full aspect-square border border-white/10 rounded-2xl relative overflow-hidden bg-black/40">
+          <video 
+            ref={videoRef}
+            className="absolute inset-0 w-full h-full object-cover"
+            playsInline
+            autoPlay
+            muted
+          />
           {!isReady && (
             <div className="absolute inset-0 flex items-center justify-center text-sub">
               Loading AI Models...
