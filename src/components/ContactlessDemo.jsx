@@ -1,139 +1,286 @@
-import React, { useState, useRef, useEffect } from 'react';
+import { useState, useRef, useEffect, useCallback } from 'react';
 import { useContactless } from 'react-kinetic-ui';
-import { Camera, CameraOff, Sparkles, AlertCircle } from 'lucide-react';
-import { motion, useMotionValue, useSpring } from 'motion/react';
+import { motion, AnimatePresence } from 'motion/react';
+import { Camera, CameraOff, Hand, Zap, Sparkles, Activity } from 'lucide-react';
 
-export default function ContactlessDemo() {
-  const [isActive, setIsActive] = useState(false);
-  const [status, setStatus] = useState('System Initializing...');
-  const [error, setError] = useState(null);
-  
-  // Motion values for smooth cursor
-  const x = useMotionValue(200);
-  const y = useMotionValue(200);
-  const springX = useSpring(x, { stiffness: 500, damping: 30 });
-  const springY = useSpring(y, { stiffness: 500, damping: 30 });
-
+const ContactlessDemo = () => {
+  const [active, setActive] = useState(false);
+  const [gesture, setGesture] = useState(null);
+  const [lastGestureTime, setLastGestureTime] = useState(0);
   const videoRef = useRef(null);
+  const canvasRef = useRef(null);
+  const containerRef = useRef(null);
 
-  const { start, stop, isReady } = useContactless((data) => {
-    try {
-      const { results, semanticGesture } = data;
-      
-      if (results?.landmarks?.length > 0) {
-        // Use Index Finger Tip (Landmark 8)
-        const tip = results.landmarks[0][8];
-        // Map 0-1 to 0-400 (container size)
-        // Note: Camera is mirrored usually, so we might need 1 - tip.x
-        x.set((1 - tip.x) * 400); 
-        y.set(tip.y * 400);
-
-        if (semanticGesture) {
-          setStatus(`Detected: ${semanticGesture.replace(/_/g, ' ')}`);
-        } else {
-          const raw = results.gestures?.[0]?.[0]?.categoryName;
-          if (raw && raw !== 'None') {
-             setStatus(`Hand: ${raw.replace(/_/g, ' ')}`);
-          } else {
-             setStatus('Tracking Hand...');
-          }
-        }
-      } else {
-        setStatus('No Hand Detected');
-      }
-    } catch (err) {
-      console.error("Gesture processing error:", err);
+  // Handle gesture callback
+  const onGesture = useCallback(({ results, semanticGesture }) => {
+    if (semanticGesture) {
+      setGesture(semanticGesture);
+      setLastGestureTime(Date.now());
     }
+    
+    // Draw landmarks if active
+    if (canvasRef.current && results.landmarks && results.landmarks.length > 0) {
+      const ctx = canvasRef.current.getContext('2d');
+      const canvas = canvasRef.current;
+      const video = videoRef.current;
+
+      if (!video) return;
+
+      // Match canvas to video dimensions
+      if (canvas.width !== video.videoWidth || canvas.height !== video.videoHeight) {
+        canvas.width = video.videoWidth;
+        canvas.height = video.videoHeight;
+      }
+
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      
+      // Draw hand skeleton
+      results.landmarks.forEach(hand => {
+        // Draw points
+        ctx.fillStyle = '#3b82f6';
+        hand.forEach(point => {
+          ctx.beginPath();
+          ctx.arc(point.x * canvas.width, point.y * canvas.height, 3, 0, 2 * Math.PI);
+          ctx.fill();
+        });
+
+        // Draw connections (Simplified for premium look)
+        ctx.strokeStyle = 'rgba(59, 130, 246, 0.5)';
+        ctx.lineWidth = 2;
+        
+        // Define connections (Standard MediaPipe hand landmarks)
+        const connections = [
+          [0, 1], [1, 2], [2, 3], [3, 4], // thumb
+          [0, 5], [5, 6], [6, 7], [7, 8], // index
+          [5, 9], [9, 10], [10, 11], [11, 12], // middle
+          [9, 13], [13, 14], [14, 15], [15, 16], // ring
+          [13, 17], [17, 18], [18, 19], [19, 20], [0, 17] // pinky
+        ];
+
+        connections.forEach(([i, j]) => {
+          ctx.beginPath();
+          ctx.moveTo(hand[i].x * canvas.width, hand[i].y * canvas.height);
+          ctx.lineTo(hand[j].x * canvas.width, hand[j].y * canvas.height);
+          ctx.stroke();
+        });
+      });
+    } else if (canvasRef.current) {
+      const ctx = canvasRef.current.getContext('2d');
+      ctx.clearRect(0, 0, canvasRef.current.width, canvasRef.current.height);
+    }
+  }, []);
+
+  const { start, stop, isReady } = useContactless(onGesture, {
+    swipeThreshold: 0.15,
+    numHands: 2
   });
 
-  useEffect(() => {
-    if (isReady) setStatus('Ready! Start camera to test.');
-  }, [isReady]);
-
-  useEffect(() => {
-    if (isActive && videoRef.current && isReady) {
-      start(videoRef.current).catch(err => {
-        setError('Camera Access Denied');
-        setIsActive(false);
-      });
-    }
-  }, [isActive, isReady, start]);
-
-  const handleToggle = () => {
-    if (isActive) {
+  const toggleCamera = async () => {
+    if (active) {
       stop();
-      setIsActive(false);
-      setStatus('Camera Stopped');
+      setActive(false);
+      setGesture(null);
     } else {
-      setError(null);
-      setIsActive(true);
-      setStatus('Starting Camera...');
+      await start(videoRef.current);
+      setActive(true);
     }
   };
 
+  // Clear gesture after a delay
+  useEffect(() => {
+    if (gesture) {
+      const timer = setTimeout(() => {
+        if (Date.now() - lastGestureTime >= 1500) {
+          setGesture(null);
+        }
+      }, 2000);
+      return () => clearTimeout(timer);
+    }
+  }, [gesture, lastGestureTime]);
+
   return (
-    <div className="glass-panel p-6 flex flex-col gap-6 h-full min-h-[500px]">
-      <div className="flex justify-between items-center">
-        <h3 className="heading-md flex items-center gap-2 m-0">
-          <Camera className="text-accent-pink" strokeWidth={1.5} /> Contactless
-        </h3>
-        <button 
-          onClick={handleToggle}
-          disabled={!isReady}
-          className={`px-4 py-2 rounded-xl text-sm font-bold transition-all ${
-            isActive 
-              ? 'bg-red-500/20 text-red-400 border border-red-500/30' 
-              : 'bg-accent-pink/10 text-accent-pink border border-accent-pink/30 hover:bg-accent-pink/20'
-          } ${!isReady ? 'opacity-50 cursor-not-allowed' : ''}`}
-        >
-           {isActive ? 'Stop Tracking' : 'Start Tracking'}
-        </button>
+    <div className="glass-panel" ref={containerRef}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.5rem' }}>
+        <div>
+          <h2 className="heading-md">Contactless Control</h2>
+          <p className="text-sub">AI-powered hand gesture recognition</p>
+        </div>
+        <div style={{ display: 'flex', gap: '0.75rem' }}>
+          <div className="glass-pill" style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', color: isReady ? '#4ade80' : '#f87171' }}>
+            <Activity size={14} />
+            <span>{isReady ? 'Model Ready' : 'Initializing...'}</span>
+          </div>
+        </div>
       </div>
 
-      <div className="flex-1 relative bg-black/20 rounded-2xl border border-white/5 overflow-hidden min-h-[300px]">
-        {isActive ? (
-          <>
-            <video 
-              ref={videoRef}
-              className="absolute inset-0 w-full h-full object-cover mirror"
-              playsInline
-              autoPlay
-              muted
-              style={{ transform: 'scaleX(-1)' }} // Mirror the video
-            />
-            
-            {/* The Cursor */}
-            <motion.div 
-              className="absolute w-6 h-6 rounded-full bg-accent-pink shadow-[0_0_20px_var(--color-accent-pink)] z-10"
-              style={{ x: springX, y: springY, left: -12, top: -12 }}
-            />
-
-            <div className="absolute bottom-6 left-0 w-full flex justify-center p-4">
-              <div className="glass-pill bg-black/60 text-accent-pink font-bold flex items-center gap-2 border-accent-pink/30">
-                <Sparkles size={16} /> {status}
-              </div>
-            </div>
-          </>
-        ) : (
-          <div className="absolute inset-0 flex flex-col items-center justify-center gap-4 text-sub">
-            {error ? (
-              <div className="flex flex-col items-center gap-2 text-red-400">
-                <AlertCircle size={40} />
-                <span>{error}</span>
-              </div>
-            ) : (
-              <>
-                <CameraOff size={40} className="opacity-20" />
-                <span className="text-sm">{isReady ? 'Ready to track' : 'Loading AI Models...'}</span>
-              </>
-            )}
+      <div style={{ 
+        position: 'relative', 
+        width: '100%', 
+        aspectRatio: '16/9', 
+        backgroundColor: '#000', 
+        borderRadius: '20px', 
+        overflow: 'hidden',
+        border: '1px solid rgba(255,255,255,0.1)'
+      }}>
+        {!active && (
+          <div style={{ 
+            position: 'absolute', 
+            inset: 0, 
+            display: 'flex', 
+            flexDirection: 'column', 
+            alignItems: 'center', 
+            justifyContent: 'center',
+            zIndex: 10,
+            background: 'radial-gradient(circle at center, rgba(59, 130, 246, 0.1), transparent)'
+          }}>
+            <Hand size={48} style={{ marginBottom: '1rem', opacity: 0.5 }} />
+            <button 
+              onClick={toggleCamera}
+              disabled={!isReady}
+              style={{ 
+                padding: '12px 24px', 
+                borderRadius: '12px', 
+                backgroundColor: isReady ? 'var(--accent-blue)' : '#333',
+                color: '#fff',
+                fontWeight: 600,
+                display: 'flex',
+                alignItems: 'center',
+                gap: '0.5rem',
+                transition: 'all 0.2s'
+              }}
+            >
+              <Camera size={18} />
+              Enable Spatial Camera
+            </button>
           </div>
         )}
+
+        <video 
+          ref={videoRef} 
+          className="mirror"
+          style={{ 
+            width: '100%', 
+            height: '100%', 
+            objectFit: 'cover',
+            display: active ? 'block' : 'none'
+          }} 
+          muted 
+          playsInline 
+        />
+        
+        <canvas 
+          ref={canvasRef}
+          className="mirror"
+          style={{ 
+            position: 'absolute', 
+            inset: 0, 
+            width: '100%', 
+            height: '100%',
+            pointerEvents: 'none',
+            zIndex: 5
+          }}
+        />
+
+        {active && (
+          <div style={{ position: 'absolute', top: '1rem', right: '1rem', zIndex: 10 }}>
+            <button 
+              onClick={toggleCamera}
+              style={{ 
+                padding: '8px', 
+                borderRadius: '50%', 
+                backgroundColor: 'rgba(0,0,0,0.5)', 
+                backdropFilter: 'blur(10px)',
+                color: '#fff',
+                border: '1px solid rgba(255,255,255,0.2)'
+              }}
+            >
+              <CameraOff size={18} />
+            </button>
+          </div>
+        )}
+
+        {/* Gesture Feedback Overlay */}
+        <AnimatePresence>
+          {gesture && (
+            <motion.div
+              initial={{ scale: 0.5, opacity: 0, y: 20 }}
+              animate={{ scale: 1, opacity: 1, y: 0 }}
+              exit={{ scale: 0.5, opacity: 0, y: -20 }}
+              style={{
+                position: 'absolute',
+                bottom: '2rem',
+                left: '50%',
+                transform: 'translateX(-50%)',
+                zIndex: 20,
+                padding: '12px 32px',
+                borderRadius: '100px',
+                background: 'rgba(59, 130, 246, 0.9)',
+                backdropFilter: 'blur(20px)',
+                color: 'white',
+                fontWeight: 800,
+                fontSize: '1.25rem',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '0.75rem',
+                boxShadow: '0 10px 40px rgba(59, 130, 246, 0.5)'
+              }}
+            >
+              <Zap size={24} fill="currentColor" />
+              {gesture.toUpperCase()}
+            </motion.div>
+          )}
+        </AnimatePresence>
+
+        {/* Scanner Line */}
+        {active && (
+          <motion.div 
+            animate={{ top: ['0%', '100%', '0%'] }}
+            transition={{ duration: 4, repeat: Infinity, ease: "linear" }}
+            style={{
+              position: 'absolute',
+              left: 0,
+              width: '100%',
+              height: '2px',
+              background: 'linear-gradient(to right, transparent, var(--accent-blue), transparent)',
+              zIndex: 4,
+              boxShadow: '0 0 15px var(--accent-blue)'
+            }}
+          />
+        )}
       </div>
-      
-      <p className="text-[10px] text-sub text-center opacity-50">
-        Best in good lighting. Mirrored for natural interaction.
-      </p>
+
+      <div style={{ marginTop: '1.5rem' }}>
+        <p className="text-sub" style={{ marginBottom: '1rem', fontSize: '0.8rem', display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+          <Sparkles size={14} className="text-accent-blue" />
+          AVAILABLE GESTURES
+        </p>
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.75rem' }}>
+          {[
+            { label: 'Single Finger', icon: '☝️' },
+            { label: 'V-shape', icon: '✌️' },
+            { label: 'Open Palm', icon: '✋' },
+            { label: 'Fist', icon: '✊' },
+            { label: 'Right Swipe', icon: '➡️' },
+            { label: 'Left Swipe', icon: '⬅️' },
+            { label: 'Double Palm', icon: '✋✋' },
+            { label: 'Asalam walekum Lyaari', icon: '🙏' }
+          ].map((item) => (
+            <div key={item.label} className="glass-pill" style={{ 
+              display: 'flex', 
+              alignItems: 'center', 
+              gap: '0.5rem',
+              backgroundColor: gesture === item.label ? 'rgba(59, 130, 246, 0.2)' : 'rgba(255,255,255,0.03)',
+              borderColor: gesture === item.label ? 'rgba(59, 130, 246, 0.4)' : 'rgba(255,255,255,0.05)',
+              transition: 'all 0.3s'
+            }}>
+              <span style={{ fontSize: '1rem' }}>{item.icon}</span>
+              <span style={{ fontWeight: gesture === item.label ? 700 : 400, fontSize: '0.75rem' }}>{item.label}</span>
+            </div>
+          ))}
+        </div>
+      </div>
     </div>
   );
-}
+};
+
+export default ContactlessDemo;
