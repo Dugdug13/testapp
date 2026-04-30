@@ -1,102 +1,139 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { useContactless } from 'react-kinetic-ui';
-import { Camera, CameraOff, Sparkles } from 'lucide-react';
+import { Camera, CameraOff, Sparkles, AlertCircle } from 'lucide-react';
 import { motion, useMotionValue, useSpring } from 'motion/react';
 
 export default function ContactlessDemo() {
   const [isActive, setIsActive] = useState(false);
-  const [lastGesture, setLastGesture] = useState('Waiting for gesture...');
+  const [status, setStatus] = useState('System Initializing...');
+  const [error, setError] = useState(null);
   
-  // Motion values to drive our cursor dot smoothly
-  const x = useMotionValue(150);
-  const y = useMotionValue(150);
-  const springX = useSpring(x, { stiffness: 400, damping: 25 });
-  const springY = useSpring(y, { stiffness: 400, damping: 25 });
+  // Motion values for smooth cursor
+  const x = useMotionValue(200);
+  const y = useMotionValue(200);
+  const springX = useSpring(x, { stiffness: 500, damping: 30 });
+  const springY = useSpring(y, { stiffness: 500, damping: 30 });
 
   const videoRef = useRef(null);
 
-  const { start, stop, isReady } = useContactless((results) => {
-    // Coordinate mapping (simplified to map to container)
-    if (results.landmarks && results.landmarks.length > 0) {
-      // Index 8 is the index finger tip in MediaPipe
-      const tipX = results.landmarks[0][8].x;
-      const tipY = results.landmarks[0][8].y;
+  const { start, stop, isReady } = useContactless((data) => {
+    try {
+      const { results, semanticGesture } = data;
       
-      // Map normalized 0-1 values back into container bounds (roughly 300px)
-      x.set(tipX * 300);
-      y.set(tipY * 300);
-    }
+      if (results?.landmarks?.length > 0) {
+        // Use Index Finger Tip (Landmark 8)
+        const tip = results.landmarks[0][8];
+        // Map 0-1 to 0-400 (container size)
+        // Note: Camera is mirrored usually, so we might need 1 - tip.x
+        x.set((1 - tip.x) * 400); 
+        y.set(tip.y * 400);
 
-    if (results.semanticGesture) {
-      setLastGesture(`Detected: ${results.semanticGesture}`);
+        if (semanticGesture) {
+          setStatus(`Detected: ${semanticGesture.replace(/_/g, ' ')}`);
+        } else {
+          const raw = results.gestures?.[0]?.[0]?.categoryName;
+          if (raw && raw !== 'None') {
+             setStatus(`Hand: ${raw.replace(/_/g, ' ')}`);
+          } else {
+             setStatus('Tracking Hand...');
+          }
+        }
+      } else {
+        setStatus('No Hand Detected');
+      }
+    } catch (err) {
+      console.error("Gesture processing error:", err);
     }
   });
 
   useEffect(() => {
-    if (isActive && videoRef.current) {
-      start(videoRef.current);
+    if (isReady) setStatus('Ready! Start camera to test.');
+  }, [isReady]);
+
+  useEffect(() => {
+    if (isActive && videoRef.current && isReady) {
+      start(videoRef.current).catch(err => {
+        setError('Camera Access Denied');
+        setIsActive(false);
+      });
     }
-  }, [isActive, start]);
+  }, [isActive, isReady, start]);
 
   const handleToggle = () => {
     if (isActive) {
       stop();
       setIsActive(false);
+      setStatus('Camera Stopped');
     } else {
+      setError(null);
       setIsActive(true);
+      setStatus('Starting Camera...');
     }
   };
 
   return (
-    <div className="glass-panel p-6 flex flex-col items-center gap-6 relative overflow-hidden h-full">
-      <div className="text-center w-full flex justify-between items-center">
-        <h3 className="heading-md flex items-center gap-2">
-          <Camera className="text-accent-blue" strokeWidth={1.5} /> Contactless
+    <div className="glass-panel p-6 flex flex-col gap-6 h-full min-h-[500px]">
+      <div className="flex justify-between items-center">
+        <h3 className="heading-md flex items-center gap-2 m-0">
+          <Camera className="text-accent-pink" strokeWidth={1.5} /> Contactless
         </h3>
         <button 
           onClick={handleToggle}
-          className={`px-4 py-2 rounded-xl backdrop-blur-md border border-white/10 text-sm font-medium transition-all ${isActive ? 'bg-red-500/20 text-red-300' : 'bg-white/5 hover:bg-white/10 text-white'}`}
+          disabled={!isReady}
+          className={`px-4 py-2 rounded-xl text-sm font-bold transition-all ${
+            isActive 
+              ? 'bg-red-500/20 text-red-400 border border-red-500/30' 
+              : 'bg-accent-pink/10 text-accent-pink border border-accent-pink/30 hover:bg-accent-pink/20'
+          } ${!isReady ? 'opacity-50 cursor-not-allowed' : ''}`}
         >
-           {isActive ? 'Stop Camera' : 'Start Camera'}
+           {isActive ? 'Stop Tracking' : 'Start Tracking'}
         </button>
       </div>
 
-      {isActive ? (
-        <div className="w-full aspect-square border border-white/10 rounded-2xl relative overflow-hidden bg-black/40">
-          <video 
-            ref={videoRef}
-            className="absolute inset-0 w-full h-full object-cover"
-            playsInline
-            autoPlay
-            muted
-          />
-          {!isReady && (
-            <div className="absolute inset-0 flex items-center justify-center text-sub">
-              Loading AI Models...
+      <div className="flex-1 relative bg-black/20 rounded-2xl border border-white/5 overflow-hidden min-h-[300px]">
+        {isActive ? (
+          <>
+            <video 
+              ref={videoRef}
+              className="absolute inset-0 w-full h-full object-cover mirror"
+              playsInline
+              autoPlay
+              muted
+              style={{ transform: 'scaleX(-1)' }} // Mirror the video
+            />
+            
+            {/* The Cursor */}
+            <motion.div 
+              className="absolute w-6 h-6 rounded-full bg-accent-pink shadow-[0_0_20px_var(--color-accent-pink)] z-10"
+              style={{ x: springX, y: springY, left: -12, top: -12 }}
+            />
+
+            <div className="absolute bottom-6 left-0 w-full flex justify-center p-4">
+              <div className="glass-pill bg-black/60 text-accent-pink font-bold flex items-center gap-2 border-accent-pink/30">
+                <Sparkles size={16} /> {status}
+              </div>
             </div>
-          )}
-          
-          <motion.div 
-            className="absolute w-8 h-8 rounded-full bg-accent-blue opacity-80 backdrop-blur"
-            style={{ 
-              x: springX, 
-              y: springY,
-              boxShadow: '0 0 20px var(--color-accent-blue)' 
-            }}
-          />
-          
-          <div className="absolute bottom-4 left-0 w-full text-center">
-             <div className="glass-pill inline-flex items-center gap-2 text-sm font-semibold text-accent-blue bg-blue-900/40">
-                <Sparkles size={16} /> {lastGesture}
-             </div>
+          </>
+        ) : (
+          <div className="absolute inset-0 flex flex-col items-center justify-center gap-4 text-sub">
+            {error ? (
+              <div className="flex flex-col items-center gap-2 text-red-400">
+                <AlertCircle size={40} />
+                <span>{error}</span>
+              </div>
+            ) : (
+              <>
+                <CameraOff size={40} className="opacity-20" />
+                <span className="text-sm">{isReady ? 'Ready to track' : 'Loading AI Models...'}</span>
+              </>
+            )}
           </div>
-        </div>
-      ) : (
-        <div className="w-full aspect-square border border-white/5 border-dashed rounded-2xl flex flex-col items-center justify-center text-sub gap-4">
-          <CameraOff size={48} strokeWidth={1} style={{ opacity: 0.2 }} />
-          Enable to test hand tracking
-        </div>
-      )}
+        )}
+      </div>
+      
+      <p className="text-[10px] text-sub text-center opacity-50">
+        Best in good lighting. Mirrored for natural interaction.
+      </p>
     </div>
   );
 }

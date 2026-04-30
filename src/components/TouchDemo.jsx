@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { useDrag, useSwipe } from '@deekshaaa/kinetic-ui';
+import { useDrag, useSwipe } from 'react-kinetic-ui';
 import { Hand, ArrowRight, Expand } from 'lucide-react';
 import { motion, useMotionValue, useSpring } from 'motion/react';
 
